@@ -1,227 +1,1896 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Backpack, BookOpen, Check, CheckCheck, ChevronRight, CircleHelp, Coins, Compass, Fish, Flag, Flower2, Hammer, Heart, House, Leaf, Map, Maximize2, Minus, Moon, MousePointer2, Plus, RotateCcw, Settings, ShoppingBasket, Sparkles, Sprout, Sun, Sunset, Volume2, VolumeX, X } from 'lucide-react';
-import { Avatar, LeafMark, ToolIcon } from './Icons';
-import { chime, setAmbient } from './audio';
-import { IslandScene } from './game/scene';
-import { WORLD_ENTITIES } from './game/world';
-import { claimTask, createNewGame, DECORATION_INFO, interactWith, ITEM_INFO, loadGame, nextDay, placeDecoration, saveGame, sellItems, TASKS, taskProgress, TOOL_INFO } from './game/engine';
-import type { DecorationKind, GameState, ItemId, Position, TimeOfDay, Tool, WorldEntity } from './game/types';
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Backpack,
+  BookOpen,
+  Check,
+  ChevronRight,
+  CircleHelp,
+  Coins,
+  Compass,
+  DoorOpen,
+  Flower2,
+  Hammer,
+  Heart,
+  House,
+  Leaf,
+  Map,
+  Moon,
+  RotateCcw,
+  RotateCw,
+  Settings,
+  ShoppingBasket,
+  Smartphone,
+  Sparkles,
+  Sun,
+  Sunset,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
+import { Avatar, LeafMark, ToolIcon } from "./Icons";
+import ItemArt from "./components/ItemArt";
+import IslandMap from "./components/IslandMap";
+import DialogueBox from "./components/DialogueBox";
+import { chime, setAmbient } from "./audio";
+import { IslandScene } from "./game/scene";
+import { WORLD_ENTITIES } from "./game/world";
+import {
+  buyFurniture,
+  claimTask,
+  createNewGame,
+  DECORATION_INFO,
+  FURNITURE_INFO,
+  fulfillRequest,
+  getVillagerDialogue,
+  interactWith,
+  ITEM_INFO,
+  loadGame,
+  moveFurniture,
+  nextDay,
+  payHomeDebt,
+  placeDecoration,
+  placeFurniture,
+  returnFurniture,
+  saveGame,
+  sellItems,
+  TASKS,
+  taskProgress,
+  TOOL_INFO,
+  VILLAGER_INFO,
+} from "./game/engine";
+import type {
+  DecorationKind,
+  FurnitureKind,
+  GameState,
+  ItemId,
+  Location,
+  Position,
+  TimeOfDay,
+  Tool,
+  WorldEntity,
+} from "./game/types";
 
-type Panel = 'pockets' | 'guide' | 'settings' | 'map' | 'shop' | 'decorate' | 'home' | 'help' | null;
-interface Dialogue { speaker: string; message: string; animal: string }
-interface Toast { id: number; message: string; positive: boolean }
-const tools: Tool[] = ['hand','net','rod','shovel'];
-const animalFor = (name:string) => /clover/i.test(name)?'rabbit':/pip/i.test(name)?'duck':'bear';
-
-function IslandMap({player,onSelect,large=false}:{player:Position;onSelect?:(x:number,z:number)=>void;large?:boolean}) {
- const mx=(x:number)=>100+x*5, mz=(z:number)=>86+z*4.6;
- const land=(scale:number)=>Array.from({length:88},(_,i)=>{const a=i/88*Math.PI*2;const r=1+Math.sin(a*3+.8)*.055+Math.sin(a*7-.3)*.025;return `${i?'L':'M'}${mx(Math.cos(a)*17.2*r*scale)},${mz(Math.sin(a)*13.8*r*scale-.8)}`;}).join(' ')+' Z';
- const trace=(points:number[][])=>points.map(([x,z],i)=>`${i?'L':'M'}${mx(x)},${mz(z)}`).join(' ');
- const river=[[-1.7,-13],[-1.2,-10.1],[2,-8.4],[5.7,-7],[6.8,-4.5],[7.2,-1.6],[9,.5],[12.1,1.5],[16,4.2]];
- return <svg className={large?'island-map large':'island-map'} viewBox="0 0 200 176" role="img" aria-label="Island map. Select a spot to walk there." onClick={onSelect?(event)=>{const r=event.currentTarget.getBoundingClientRect();const scale=Math.min(r.width/200,r.height/176);const x=(event.clientX-r.left-(r.width-200*scale)/2)/scale;const y=(event.clientY-r.top-(r.height-176*scale)/2)/scale;onSelect((x-100)/5,(y-86)/4.6);}:undefined}>
-  <defs><pattern id={large?'water-big':'water-small'} width="22" height="20" patternUnits="userSpaceOnUse"><path d="M3 10q3 2 6 0" fill="none" stroke="#acd8d3" strokeWidth="1"/></pattern></defs>
-  <rect width="200" height="176" rx="20" fill="#c3e2dd"/><rect width="200" height="176" fill={`url(#${large?'water-big':'water-small'})`}/>
-  <path d={land(1.06)} fill="#d5e6cd"/><path d={land(1)} fill="#f0dcaf"/><path d={land(.885)} fill="#97b77c"/>
-  <path d={trace(river)} fill="none" stroke="#abd9d2" strokeWidth="10" strokeLinejoin="round"/>
-  <path d={trace([[-5.1,-6],[-5,-2],[-3,.3],[-.7,2],[1.1,5.5],[1.1,10.7]])} fill="none" stroke="#e2cd9d" strokeWidth="6" strokeLinejoin="round"/>
-  <path d={trace([[-10.2,2],[-6.7,2],[-3.8,1.2],[-.7,2],[3,.1],[5.3,-3.4],[8.8,-3.4],[11.3,-4.2]])} fill="none" stroke="#e2cd9d" strokeWidth="6" strokeLinejoin="round"/>
-  <rect x={mx(5)} y={mz(-4.2)} width="18" height="8" rx="1" fill="#b58c63"/>
-  <rect x={mx(.1)} y={mz(11.2)} width="10" height="20" rx="1" fill="#b58c63"/>
-  {WORLD_ENTITIES.filter(e=>['tree','home','shop','villager','rock'].includes(e.kind)).map(e=><g key={e.id} transform={`translate(${mx(e.x)} ${mz(e.z)})`}>
-    {e.kind==='tree'?<><circle r="6" fill="#6c9864"/><circle cx="-1" cy="-2" r="4" fill="#7da96d"/><circle cx="3" cy="1" r="1.2" fill="#e8a081"/></>:e.kind==='home'?<><path d="m-8-1 8-7 8 7v9H-8Z" fill="#f4e7c2"/><path d="m-10-1 10-9 10 9" stroke="#c78665" strokeWidth="3.5" strokeLinejoin="round"/></>:e.kind==='shop'?<><rect x="-7" y="-4" width="14" height="11" rx="2" fill="#eee0b9"/><path d="M-8-2H8L6-7H-6Z" fill="#d39b71"/></>:e.kind==='rock'?<ellipse rx="3" ry="2.5" fill="#9ca68c"/>:<circle r="2" fill="#f5e9bd" stroke="#91a676" strokeWidth="1"/>}
-  </g>)}
-  <circle cx={mx(player.x)} cy={mz(player.z)} r="6" fill="#fff9ed" opacity=".5"/><circle cx={mx(player.x)} cy={mz(player.z)} r="3.5" fill="#d47c55" stroke="#fff9ed" strokeWidth="1.5"/>
-  <text x="182" y="21" fontSize="8" fontFamily="sans-serif" fill="#628f87">N</text><path d="m183 27-2 5h4Z" fill="#628f87"/>
- </svg>;
-}
+type Panel =
+  | "phone"
+  | "pockets"
+  | "journal"
+  | "settings"
+  | "map"
+  | "shop"
+  | "decorate"
+  | "home"
+  | "help"
+  | "friends"
+  | "furnish"
+  | null;
+type Conversation = {
+  speaker: string;
+  message: string;
+  animal?: string;
+  villagerId?: string;
+  mode?: "greeting" | "request" | "thanks";
+};
+type Fishing = { entity: WorldEntity; phase: "waiting" | "bite" };
+const TOOLS: Tool[] = ["hand", "net", "rod", "shovel"];
+const ITEM_ORDER: ItemId[] = [
+  "peach",
+  "wood",
+  "stone",
+  "shell",
+  "fish",
+  "butterfly",
+  "flower",
+];
+const furnitureKinds = Object.keys(FURNITURE_INFO) as FurnitureKind[];
 
 export default function App() {
- const [game,setGame] = useState<GameState>(loadGame);
- const gameRef=useRef(game);
- const sceneRef=useRef<IslandScene|null>(null);
- const containerRef=useRef<HTMLDivElement>(null);
- const [panel,setPanel]=useState<Panel>(null);
- const [nearby,setNearby]=useState<WorldEntity|null>(null);
- const [dialogue,setDialogue]=useState<Dialogue|null>(null);
- const [toasts,setToasts]=useState<Toast[]>([]);
- const [ready,setReady]=useState(false);
- const [sceneError,setSceneError]=useState(false);
- const [clock,setClock]=useState(new Date());
- const [zoom,setZoom]=useState(1);
- const [resetConfirm,setResetConfirm]=useState(false);
- const [nameDraft,setNameDraft]=useState(game.name);
- const [saved,setSaved]=useState(true);
- const [fishing,setFishing]=useState<{entity:WorldEntity;start:number}|null>(null);
- const [fishingProgress,setFishingProgress]=useState(0);
- const fishingProgressRef=useRef(0);
- const interactionRef=useRef<(entity:WorldEntity)=>void>(()=>{});
- const fishingRef=useRef<()=>void>(()=>{});
- const toastCounter=useRef(0);
- const timeouts=useRef<ReturnType<typeof setTimeout>[]>([]);
- const notify=useCallback((message:string,positive=true)=>{
-  const id=++toastCounter.current;
-  setToasts(prev=>[...prev.slice(-2),{id,message,positive}]);
-  timeouts.current.push(setTimeout(()=>setToasts(prev=>prev.filter(t=>t.id!==id)),4500));
- },[]);
- const commit=useCallback((next:GameState)=>{gameRef.current=next;setGame(next);},[]);
- const performInteraction=useCallback((entity:WorldEntity)=>{
-  const result=interactWith(gameRef.current,entity);
-  commit(result.state);
-  if(result.kind==='dialogue')setDialogue({speaker:result.speaker??entity.name,message:result.message,animal:animalFor(entity.name)});
-  else if(result.kind==='shop')setPanel('shop');
-  else if(result.kind==='home')setPanel('home');
-  else {notify(result.message,result.kind==='success');if(result.kind==='success'&&gameRef.current.sound)chime();}
- },[commit,notify]);
- interactionRef.current=(entity)=>{
-  if(entity.kind==='fish'&&gameRef.current.tool==='rod'&&!gameRef.current.gathered.includes(entity.id))setFishing({entity,start:performance.now()});
-  else performInteraction(entity);
- };
- fishingRef.current=()=>{
-  if(!fishing)return;
-  if(fishingProgressRef.current>=.47&&fishingProgressRef.current<=.78){performInteraction(fishing.entity);setFishing(null);}
-  else {notify('That one got away. There are plenty more fish in the sea.',false);setFishing(null);}
- };
- useEffect(()=>{
-  if(!containerRef.current)return;
-  try {
-   const scene=new IslandScene(containerRef.current,{
-    initialPlayer:gameRef.current.player,
-    onNear:entity=>setNearby(prev=>prev?.id===entity?.id?prev:entity),
-    onInteract:entity=>interactionRef.current(entity),
-    onMove:player=>{const next={...gameRef.current,player};gameRef.current=next;setGame(next);},
-    onReady:()=>setReady(true),
-   });
-   sceneRef.current=scene;
-   scene.sync({...gameRef.current,paused:false});
-   return ()=>{scene.destroy();sceneRef.current=null;};
-  }catch(error){console.error('Island could not start',error);setSceneError(true);}
- },[]);
- useEffect(()=>{sceneRef.current?.sync({...game,paused:!!panel||!!dialogue||!!fishing});},[game,panel,dialogue,fishing]);
- useEffect(()=>{const timer=setTimeout(()=>setSaved(saveGame(game)),700);return()=>clearTimeout(timer);},[game]);
- useEffect(()=>{
-  const save=()=>{saveGame(gameRef.current);};
-  window.addEventListener('pagehide',save);
-  const clockTimer=setInterval(()=>setClock(new Date()),10000);
-  return()=>{window.removeEventListener('pagehide',save);clearInterval(clockTimer);timeouts.current.forEach(clearTimeout);setAmbient(false);};
- },[]);
- useEffect(()=>{
-  if(!fishing)return;
-  let frame=0;
-  const animate=(now:number)=>{const progress=(Math.sin((now-fishing.start)/1000-Math.PI/2)+1)/2;fishingProgressRef.current=progress;setFishingProgress(progress);frame=requestAnimationFrame(animate);};
-  frame=requestAnimationFrame(animate);return()=>cancelAnimationFrame(frame);
- },[fishing]);
- useEffect(()=>{
-  const handle=(event:KeyboardEvent)=>{
-   if((event.target as HTMLElement)?.matches('input,textarea'))return;
-   if(event.key==='Escape'){setPanel(null);setDialogue(null);setFishing(null);setResetConfirm(false);return;}
-   if(fishing&&event.code==='Space'){event.preventDefault();fishingRef.current();return;}
-   if(dialogue&&(event.key==='Enter'||event.code==='Space')){event.preventDefault();setDialogue(null);return;}
-   if(panel||dialogue||fishing)return;
-   if(['1','2','3','4'].includes(event.key)){commit({...gameRef.current,tool:tools[Number(event.key)-1]});}
-   if(event.key.toLowerCase()==='b')setPanel('pockets');
-   if(event.key.toLowerCase()==='m')setPanel('map');
-   if(event.key.toLowerCase()==='g')setPanel('guide');
+  const [game, setGame] = useState<GameState>(loadGame);
+  const gameRef = useRef(game);
+  const [location, setLocation] = useState<Location>("island");
+  const locationRef = useRef<Location>("island");
+  const sceneRef = useRef<IslandScene | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+  const [sceneError, setSceneError] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [nearby, setNearby] = useState<WorldEntity | null>(null);
+  const [dialogue, setDialogue] = useState<Conversation | null>(null);
+  const [fishing, setFishing] = useState<Fishing | null>(null);
+  const [catchNotice, setCatchNotice] = useState<{
+    item: ItemId;
+    text: string;
+  } | null>(null);
+  const [toolWheel, setToolWheel] = useState(false);
+  const [selectedFurniture, setSelectedFurniture] = useState<string | null>(
+    null,
+  );
+  const [selectedItem, setSelectedItem] = useState<ItemId | null>(null);
+  const [heldFurniture, setHeldFurniture] = useState<FurnitureKind | null>(
+    null,
+  );
+  const [navigation, setNavigation] = useState<
+    { entityId: string } | { point: Position } | null
+  >(null);
+  const [shopTab, setShopTab] = useState<"sell" | "furniture" | "garden">(
+    "furniture",
+  );
+  const [toast, setToast] = useState("");
+  const [toastPositive, setToastPositive] = useState(true);
+  const [transitioning, setTransitioning] = useState(false);
+  const [clock, setClock] = useState(new Date());
+  const [saved, setSaved] = useState(true);
+  const [nameDraft, setNameDraft] = useState(game.name);
+  const [resetConfirm, setResetConfirm] = useState(false);
+  const [cameraView, setCameraView] = useState<"close" | "normal" | "wide">(
+    "normal",
+  );
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const transitionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const onInteractRef = useRef<(entity: WorldEntity) => void>(() => {});
+  const enterLocationRef = useRef<(next: Location) => void>(() => {});
+  const reelRef = useRef<() => void>(() => {});
+  const keyRef = useRef<(event: KeyboardEvent) => void>(() => {});
+
+  const commit = useCallback((state: GameState) => {
+    gameRef.current = state;
+    setGame(state);
+  }, []);
+  const notify = useCallback((message: string, positive = true) => {
+    setToast(message);
+    setToastPositive(positive);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 4500);
+  }, []);
+  const applyResult = (result: { state: GameState; message: string }) => {
+    const changed = result.state !== gameRef.current;
+    commit(result.state);
+    notify(result.message, changed);
+    if (changed && gameRef.current.sound) chime();
+    return changed;
   };
-  window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);
- },[panel,dialogue,fishing,commit]);
- useEffect(()=>{
-  const resume=()=>{if(gameRef.current.sound)setAmbient(true);};
-  window.addEventListener('pointerdown',resume,{once:true});
-  return()=>window.removeEventListener('pointerdown',resume);
- },[]);
- useEffect(()=>{
-  if(!panel&&!dialogue&&!fishing)return;
-  const previous=document.activeElement as HTMLElement|null;
-  const modal=document.querySelector<HTMLElement>('[role="dialog"]');
-  const focusable='button:not(:disabled), input, a[href], [tabindex="0"]';
-  const frame=requestAnimationFrame(()=>modal?.querySelector<HTMLElement>(focusable)?.focus());
-  const trap=(event:KeyboardEvent)=>{
-   if(event.key!=='Tab'||!modal)return;
-   const elements=Array.from(modal.querySelectorAll<HTMLElement>(focusable));
-   const first=elements[0],last=elements.at(-1);
-   if(event.shiftKey&&(document.activeElement===first||!modal.contains(document.activeElement))){event.preventDefault();last?.focus();}
-   else if(!event.shiftKey&&(document.activeElement===last||!modal.contains(document.activeElement))){event.preventDefault();first?.focus();}
+  const enterLocation = (next: Location) => {
+    setPanel(null);
+    setDialogue(null);
+    setSelectedFurniture(null);
+    setToolWheel(false);
+    setNearby(null);
+    setTransitioning(true);
+    locationRef.current = next;
+    setLocation(next);
+    clearTimeout(transitionTimer.current);
+    transitionTimer.current = setTimeout(() => setTransitioning(false), 550);
   };
-  window.addEventListener('keydown',trap);
-  return()=>{cancelAnimationFrame(frame);window.removeEventListener('keydown',trap);if(previous?.isConnected)previous.focus();};
- },[panel,dialogue,fishing]);
- const totalItems=Object.values(game.inventory).reduce((sum,n)=>sum+n,0);
- const progress=TASKS.filter(task=>game.completed.includes(task.id)).length;
- const open=(next:Panel)=>{setPanel(current=>current===next?null:next);setDialogue(null);setResetConfirm(false);};
- const chooseTool=(tool:Tool)=>{commit({...gameRef.current,tool});};
- const toggleSound=()=>{const enabled=!game.sound;commit({...game,sound:enabled});setAmbient(enabled);if(enabled)chime();};
- const changeZoom=(delta:number)=>{const next=Math.min(2,Math.max(0,zoom+delta));setZoom(next);sceneRef.current?.setCamera((['wide','normal','close'] as const)[next]);};
- const decorate=(kind:DecorationKind)=>{
-  const position=sceneRef.current?.getDecorationPosition();
-  if(!position){notify('This spot is a little crowded. Try an open patch of grass.',false);return;}
-  const result=placeDecoration(game,kind,position);commit(result.state);notify(result.message,result.state!==game);
-  if(result.state!==game){setPanel(null);if(game.sound)chime();}
- };
- const rest=()=>{const next=nextDay(game);commit(next);sceneRef.current?.setPlayer(next.player);setPanel(null);notify(`Hello, day ${next.day}! The island has a few fresh surprises.`);};
- const clockTime=clock.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}).split(' ');
- const featuredTasks=TASKS.filter(task=>['gathered','met','planted'].includes(task.metric)).slice(0,3);
- const sellValue=(Object.entries(game.inventory) as [ItemId,number][]).reduce((sum,[id,count])=>sum+(id==='flower'?0:ITEM_INFO[id].price*count),0);
+  enterLocationRef.current = enterLocation;
+  const open = (next: Panel) => {
+    setPanel(next);
+    setDialogue(null);
+    setSelectedFurniture(null);
+    setToolWheel(false);
+    setSelectedItem(null);
+    setHeldFurniture(null);
+    setResetConfirm(false);
+  };
+  const travelTo = (
+    destination: { entityId: string } | { point: Position },
+  ) => {
+    setNavigation(destination);
+    if (locationRef.current === "home") enterLocation("island");
+    else setPanel(null);
+  };
+  const close = () => {
+    setPanel(null);
+    setDialogue(null);
+    setCatchNotice(null);
+    setToolWheel(false);
+    setSelectedFurniture(null);
+    setResetConfirm(false);
+  };
+  const chooseTool = (tool: Tool) => {
+    commit({ ...gameRef.current, tool });
+    setToolWheel(false);
+  };
+  const toggleSound = () => {
+    const enabled = !gameRef.current.sound;
+    commit({ ...gameRef.current, sound: enabled });
+    setAmbient(enabled);
+    if (enabled) chime();
+  };
+  const talkTo = (entity: WorldEntity) => {
+    const result = interactWith(gameRef.current, entity);
+    commit(result.state);
+    setDialogue({
+      speaker: entity.name,
+      message: result.message,
+      animal: VILLAGER_INFO[entity.id]?.animal,
+      villagerId: entity.id,
+      mode: "greeting",
+    });
+  };
+  const performInteraction = (entity: WorldEntity) => {
+    if (entity.kind === "home") {
+      enterLocation("home");
+      return;
+    }
+    if (entity.kind === "exit") {
+      enterLocation("island");
+      return;
+    }
+    if (entity.kind === "bed") {
+      open("home");
+      return;
+    }
+    if (entity.kind === "villager") {
+      talkTo(entity);
+      return;
+    }
+    if (entity.kind === "shop") {
+      setShopTab("furniture");
+      open("shop");
+      return;
+    }
+    const result = interactWith(gameRef.current, entity);
+    commit(result.state);
+    if (result.kind === "success") {
+      sceneRef.current?.playAction(
+        entity.kind === "tree"
+          ? "shake"
+          : entity.kind === "rock"
+            ? "dig"
+            : entity.kind === "butterfly"
+              ? "catch"
+              : entity.kind === "fish"
+                ? "catch"
+                : "pickup",
+        entity,
+      );
+      if (entity.kind === "fish")
+        setCatchNotice({
+          item: "fish",
+          text: "I caught a river fish!\nNow that's a fresh start.",
+        });
+      else if (entity.kind === "butterfly")
+        setCatchNotice({
+          item: "butterfly",
+          text: "I caught a butterfly!\nI guess we're on a first-flutter basis.",
+        });
+      else notify(result.message);
+      if (gameRef.current.sound) chime();
+    } else notify(result.message, false);
+  };
+  onInteractRef.current = (entity) => {
+    if (
+      entity.kind === "fish" &&
+      gameRef.current.tool === "rod" &&
+      !gameRef.current.gathered.includes(entity.id)
+    ) {
+      sceneRef.current?.playAction("cast", entity);
+      setFishing({ entity, phase: "waiting" });
+      setToast("");
+    } else performInteraction(entity);
+  };
+  reelRef.current = () => {
+    if (!fishing) return;
+    if (fishing.phase === "bite") {
+      const entity = fishing.entity;
+      setFishing(null);
+      performInteraction(entity);
+    } else {
+      setFishing(null);
+      sceneRef.current?.playAction("pickup");
+      notify("A little too soon! Wait for the bobber to dip.", false);
+    }
+  };
+  const moveSelected = (dx: number, dz: number, rotate = false) => {
+    const current = gameRef.current.room.find(
+      (item) => item.id === selectedFurniture,
+    );
+    if (!current) return;
+    const position = { x: current.x + dx, z: current.z + dz };
+    const rotation = rotate ? (current.rotation + 1) % 4 : current.rotation;
+    const person = sceneRef.current?.getPlayerPosition();
+    const dimensions = FURNITURE_INFO[current.kind];
+    const width = rotation % 2 ? dimensions.depth : dimensions.width;
+    const depth = rotation % 2 ? dimensions.width : dimensions.depth;
+    if (
+      current.kind !== "rug" &&
+      person &&
+      Math.abs(person.x - position.x) < width / 2 + 0.26 &&
+      Math.abs(person.z - position.z) < depth / 2 + 0.26
+    ) {
+      notify("You’re standing there! Move out of the way first.", false);
+      return;
+    }
+    const result = moveFurniture(
+      gameRef.current,
+      current.id,
+      position,
+      rotation,
+    );
+    if (result.state === gameRef.current) notify(result.message, false);
+    else commit(result.state);
+  };
+  keyRef.current = (event) => {
+    if (
+      (event.target as HTMLElement)?.matches("input,textarea") ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey
+    )
+      return;
+    const key = event.key.toLowerCase();
+    if (event.repeat && !selectedFurniture) return;
+    if (key === "escape") {
+      close();
+      if (fishing) {
+        setFishing(null);
+        sceneRef.current?.playAction("pickup");
+      }
+      return;
+    }
+    if (fishing && (key === "e" || event.code === "Space")) {
+      event.preventDefault();
+      reelRef.current();
+      return;
+    }
+    if (
+      catchNotice &&
+      (key === "e" || event.code === "Space" || key === "enter")
+    ) {
+      event.preventDefault();
+      setCatchNotice(null);
+      return;
+    }
+    if (dialogue) return;
+    if (selectedFurniture) {
+      if (
+        ["arrowup", "arrowdown", "arrowleft", "arrowright", "r"].includes(key)
+      ) {
+        event.preventDefault();
+        moveSelected(
+          key === "arrowleft" ? -0.5 : key === "arrowright" ? 0.5 : 0,
+          key === "arrowup" ? -0.5 : key === "arrowdown" ? 0.5 : 0,
+          key === "r",
+        );
+      }
+      return;
+    }
+    if (panel || dialogue || catchNotice) return;
+    if (event.code === "Tab") {
+      event.preventDefault();
+      setToolWheel((value) => !value);
+      return;
+    }
+    if (["1", "2", "3", "4"].includes(key)) chooseTool(TOOLS[Number(key) - 1]);
+    if (key === "b") open("pockets");
+    if (key === "m") open("map");
+    if (key === "g") open("journal");
+    if (key === "p") open("phone");
+    if (key === "f")
+      open(locationRef.current === "home" ? "furnish" : "decorate");
+  };
 
- return <div className="app-shell">
-  <header className="app-header">
-   <a className="brand" href="#" onClick={event=>{event.preventDefault();setPanel(null);}} aria-label="Little Isle home"><span className="brand-icon"><LeafMark/></span><span className="brand-name">little isle<span>a little life, well lived.</span></span></a>
-   <span className="header-divider"/>
-   <div className="island-name"><span className="status-dot"/>{game.name} Island<ChevronRight size={13}/></div>
-   <nav className="main-nav" aria-label="Main navigation">
-    <button className={!panel?'active':''} onClick={()=>{setPanel(null);setDialogue(null);}}><Compass size={17}/>My island</button>
-    <button className={panel==='pockets'?'active':''} onClick={()=>open('pockets')}><Backpack size={17}/>Pockets<span className="nav-count">{totalItems}</span></button>
-    <button className={panel==='guide'?'active':''} onClick={()=>open('guide')}><BookOpen size={17}/>Island guide</button>
-   </nav>
-   <div className="header-actions"><span className="bell-balance"><span className="coin-symbol">✦</span><span>{game.bells.toLocaleString()}</span><span className="bell-label">bells</span></span><span className="header-divider"/><button className="icon-button sound-button" onClick={toggleSound} aria-label={game.sound?'Mute island sounds':'Enable island sounds'} title={game.sound?'Sound on':'Sound off'}>{game.sound?<Volume2 size={19}/>:<VolumeX size={19}/>}</button><button className={`icon-button ${panel==='settings'?'selected':''}`} onClick={()=>open('settings')} aria-label="Settings"><Settings size={19}/></button></div>
-  </header>
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    try {
+      const scene = new IslandScene(canvasRef.current, {
+        initialPlayer: gameRef.current.player,
+        onNear: (entity) =>
+          setNearby((previous) =>
+            previous?.id === entity?.id && previous?.name === entity?.name
+              ? previous
+              : entity,
+          ),
+        onInteract: (entity) => onInteractRef.current(entity),
+        onMove: (player) => {
+          if (locationRef.current === "island")
+            commit({ ...gameRef.current, player });
+        },
+        onReady: () => setReady(true),
+        onExitHome: () => enterLocationRef.current("island"),
+        onFurnitureSelect: (id) => {
+          setSelectedFurniture(id);
+          setPanel(null);
+        },
+      });
+      sceneRef.current = scene;
+      scene.sync({ ...gameRef.current, location: "island", paused: false });
+      return () => {
+        scene.destroy();
+        sceneRef.current = null;
+      };
+    } catch (error) {
+      console.error(error);
+      setSceneError(true);
+    }
+  }, [commit]);
+  useEffect(() => {
+    sceneRef.current?.sync({
+      ...game,
+      location,
+      paused:
+        !!panel ||
+        !!dialogue ||
+        !!fishing ||
+        !!catchNotice ||
+        toolWheel ||
+        !!selectedFurniture,
+    });
+    if (navigation && location === "island") {
+      if ("entityId" in navigation)
+        sceneRef.current?.visit(navigation.entityId);
+      else
+        sceneRef.current?.setWaypoint(navigation.point.x, navigation.point.z);
+      setNavigation(null);
+    }
+  }, [
+    game,
+    location,
+    panel,
+    dialogue,
+    fishing,
+    catchNotice,
+    toolWheel,
+    selectedFurniture,
+    navigation,
+  ]);
+  useEffect(() => {
+    const timer = setTimeout(() => setSaved(saveGame(game)), 650);
+    return () => clearTimeout(timer);
+  }, [game]);
+  useEffect(() => {
+    const save = () => saveGame(gameRef.current);
+    const keys = (event: KeyboardEvent) => keyRef.current(event);
+    const resumeSound = () => {
+      if (gameRef.current.sound) setAmbient(true);
+    };
+    window.addEventListener("keydown", keys);
+    window.addEventListener("pagehide", save);
+    window.addEventListener("pointerdown", resumeSound, { once: true });
+    const timer = setInterval(() => setClock(new Date()), 10000);
+    return () => {
+      window.removeEventListener("keydown", keys);
+      window.removeEventListener("pagehide", save);
+      window.removeEventListener("pointerdown", resumeSound);
+      clearInterval(timer);
+      clearTimeout(toastTimer.current);
+      clearTimeout(transitionTimer.current);
+      setAmbient(false);
+    };
+  }, []);
+  useEffect(() => {
+    if (!fishing) return;
+    if (fishing.phase === "waiting") {
+      const timer = setTimeout(
+        () => {
+          sceneRef.current?.playAction("bite", fishing.entity);
+          setFishing((current) =>
+            current ? { ...current, phase: "bite" } : null,
+          );
+          if (gameRef.current.sound) chime();
+        },
+        2600 + Math.random() * 1600,
+      );
+      return () => clearTimeout(timer);
+    }
+    const timer = setTimeout(() => {
+      setFishing(null);
+      sceneRef.current?.playAction("pickup");
+      notify("It got away! Reel in as soon as the bobber dips.", false);
+    }, 1800);
+    return () => clearTimeout(timer);
+  }, [fishing, notify]);
+  useEffect(() => {
+    if (!panel && !dialogue && !catchNotice && !toolWheel) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const modal = document.querySelector<HTMLElement>('[role="dialog"]');
+    const selector = 'button:not(:disabled), input, a[href], [tabindex="0"]';
+    const frame = requestAnimationFrame(() =>
+      modal?.querySelector<HTMLElement>(selector)?.focus(),
+    );
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !modal) return;
+      const items = Array.from(modal.querySelectorAll<HTMLElement>(selector));
+      if (
+        event.shiftKey &&
+        (document.activeElement === items[0] ||
+          !modal.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        items.at(-1)?.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === items.at(-1) ||
+          !modal.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        items[0]?.focus();
+      }
+    };
+    window.addEventListener("keydown", trap);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", trap);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [panel, dialogue, catchNotice, toolWheel]);
 
-  <main className={`playground time-${game.timeOfDay}`}>
-   <div className="scene-container" ref={containerRef} aria-label="Interactive 3D island. Move with WASD or arrow keys, click to walk, and press E to interact."/>
-   {!ready&&!sceneError&&<div className="loading-screen"><LeafMark/><h2>A little island is waking up…</h2><div className="loading-dots"><i/><i/><i/></div></div>}
-   {sceneError&&<div className="loading-screen"><LeafMark/><h2>Our island needs a little help.</h2><p>Enable hardware acceleration in your browser, then reload to set sail.</p><button className="primary-button" onClick={()=>window.location.reload()}>Try again</button></div>}
-   <div className="island-heading"><span className="eyebrow"><span/> YOUR OWN LITTLE CORNER</span><h1>Life is lovely<br/>on {game.name} Island.</h1><p>Take a breath. Make yourself at home.</p></div>
-   <div className="weather-pill">{game.timeOfDay==='night'?<Moon size={21}/>:game.timeOfDay==='sunset'?<Sunset size={21}/>:<Sun size={21}/>}<span>{game.timeOfDay==='night'?'19°':'24°'}<i>{game.timeOfDay==='night'?'Moonlit skies':game.timeOfDay==='sunset'?'Golden hour':'Sunny skies'}</i></span><span className="weather-divider"/><span className="day-label">Day {game.day}</span></div>
+  const totalItems = [
+    ...Object.values(game.inventory),
+    ...Object.values(game.furniture),
+  ].reduce((sum, n) => sum + n, 0);
+  const pocketEntries = [
+    ...ITEM_ORDER.filter((id) => game.inventory[id] > 0).map((id) => ({
+      key: `item:${id}`,
+      label: ITEM_INFO[id].name,
+      count: game.inventory[id],
+      item: id,
+      furniture: undefined,
+    })),
+    ...furnitureKinds
+      .filter((kind) => game.furniture[kind] > 0)
+      .map((kind) => ({
+        key: `furniture:${kind}`,
+        label: FURNITURE_INFO[kind].name,
+        count: game.furniture[kind],
+        item: undefined,
+        furniture: kind,
+      })),
+  ];
+  const completedGoals = TASKS.filter((task) =>
+    game.completed.includes(task.id),
+  ).length;
+  const sellValue = ITEM_ORDER.reduce(
+    (sum, id) =>
+      sum + (id === "flower" ? 0 : ITEM_INFO[id].price * game.inventory[id]),
+    0,
+  );
+  const time = clock
+    .toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    .split(" ");
+  const currentFurniture = game.room.find(
+    (item) => item.id === selectedFurniture,
+  );
+  const villager = dialogue?.villagerId
+    ? getVillagerDialogue(game, dialogue.villagerId)
+    : null;
+  const isBusy =
+    !!panel ||
+    !!dialogue ||
+    !!fishing ||
+    !!catchNotice ||
+    toolWheel ||
+    !!selectedFurniture;
+  const interactLabel = nearby
+    ? nearby.kind === "villager"
+      ? "Talk"
+      : nearby.kind === "home"
+        ? "Go inside"
+        : nearby.kind === "exit"
+          ? "Go outside"
+          : nearby.kind === "bed"
+            ? "Rest"
+            : nearby.kind === "shop"
+              ? "Go shopping"
+              : nearby.kind === "tree"
+                ? "Shake tree"
+                : nearby.kind === "fish"
+                  ? "Cast line"
+                  : nearby.kind === "rock"
+                    ? "Hit rock"
+                    : nearby.kind === "butterfly"
+                      ? "Catch"
+                      : "Pick up"
+    : TOOL_INFO[game.tool].name;
+  const rest = () => {
+    const state = nextDay(gameRef.current);
+    commit(state);
+    setPanel(null);
+    notify(`Good morning! It's day ${state.day} on ${state.name} Island.`);
+  };
+  const decorate = (kind: DecorationKind) => {
+    const position = sceneRef.current?.getDecorationPosition();
+    if (!position) {
+      notify("Find an open patch of grass first.", false);
+      return;
+    }
+    if (applyResult(placeDecoration(gameRef.current, kind, position)))
+      setPanel(null);
+  };
+  const furnish = (kind: FurnitureKind) => {
+    const position = sceneRef.current?.getFurniturePosition(kind);
+    if (!position) {
+      notify(
+        "There isn’t enough room here. Move a few things and try again.",
+        false,
+      );
+      return;
+    }
+    if (applyResult(placeFurniture(gameRef.current, kind, position))) {
+      setPanel(null);
+    }
+  };
+  const requestHelp = () => {
+    if (!dialogue?.villagerId || !villager?.request) return;
+    setDialogue({
+      ...dialogue,
+      mode: "request",
+      message: villager.request.delivered
+        ? "You already made my day! Come see me tomorrow, okay?"
+        : villager.request.text,
+    });
+  };
+  const deliver = () => {
+    if (!dialogue?.villagerId) return;
+    const result = fulfillRequest(gameRef.current, dialogue.villagerId);
+    commit(result.state);
+    setDialogue({ ...dialogue, mode: "thanks", message: result.message });
+    if (result.state !== game && game.sound) chime();
+  };
 
-   <aside className="island-sidebar">
-    <section className="daily-card"><div className="card-heading"><span className="tiny-icon"><Sprout size={18}/></span><h2>Today's little joys</h2><span className="task-count">{progress}/{TASKS.length}</span></div><p>A little something to make your day.</p>
-     <div className="daily-tasks">{featuredTasks.map(task=>{
-      const done=game.completed.includes(task.id),claimable=taskProgress(game,task)>=task.target;
-      return <button className={`daily-task ${done?'done':''}`} key={task.id} onClick={()=>{if(claimable&&!done){const result=claimTask(game,task.id);commit(result.state);notify(result.message);}else open('guide');}}><span className={`task-check ${done?'checked':claimable?'claimable':''}`}>{done?<Check size={12}/>:claimable?<Sparkles size={12}/>:null}</span><span className="task-title">{task.title}<span className="mini-progress"><i style={{width:`${taskProgress(game,task)/task.target*100}%`}}/></span></span><span className="task-fraction">{taskProgress(game,task)}/{task.target}</span></button>;
-     })}</div><button className="text-button view-journal" onClick={()=>open('guide')}>Open island journal <ArrowRight size={14}/></button>
-    </section>
-    <button className="neighbor-note" onClick={()=>{const neighbor=WORLD_ENTITIES.find(e=>e.kind==='villager'&&!game.met.includes(e.name))??WORLD_ENTITIES.find(e=>e.kind==='villager');if(neighbor){sceneRef.current?.setWaypoint(neighbor.x,neighbor.z);notify(`Heading over to ${neighbor.name}. Say hello with E.`,false);}}}><Avatar animal="bear"/><span><span className="note-eyebrow">BETTER TOGETHER</span><strong>A neighbor, a new friend.</strong><span>Someone's waiting to say hello.<ArrowRight size={12}/></span></span></button>
-   </aside>
+  return (
+    <main
+      className={`game-screen mood-${game.timeOfDay} ${location === "home" ? "inside-home" : ""}`}
+    >
+      <div
+        ref={canvasRef}
+        className="world-canvas"
+        aria-label="Little Isle, a walkable 3D village. WASD moves, E interacts, B opens pockets."
+      />
+      {(!ready || sceneError) && (
+        <div className="loading-screen">
+          <LeafMark />
+          <h1>
+            {sceneError ? "Let’s try that again." : "Your island is waking up…"}
+          </h1>
+          {sceneError ? (
+            <>
+              <p>A WebGL-capable browser is needed to visit the island.</p>
+              <button onClick={() => window.location.reload()}>
+                Try again
+              </button>
+            </>
+          ) : (
+            <span className="loading-dots">
+              <i />
+              <i />
+              <i />
+            </span>
+          )}
+        </div>
+      )}
+      <div
+        className={`scene-transition ${transitioning ? "visible" : ""}`}
+        aria-hidden="true"
+      >
+        <LeafMark />
+      </div>
 
-   <div className="world-actions"><button className="round-button" aria-label="Zoom in" title="Zoom in" onClick={()=>changeZoom(1)} disabled={zoom===2}><Plus size={17}/></button><button className="round-button" aria-label="Zoom out" title="Zoom out" onClick={()=>changeZoom(-1)} disabled={zoom===0}><Minus size={17}/></button><span/><button className="round-button" aria-label="How to play" title="How to play" onClick={()=>open('help')}><CircleHelp size={17}/></button></div>
+      {!isBusy && (
+        <>
+          <div className="top-left-hud">
+            <button
+              className="phone-shortcut"
+              onClick={() => open("phone")}
+              aria-label="Open island phone"
+            >
+              <kbd>P</kbd>
+              <Smartphone size={31} />
+            </button>
+            <span className="island-location">
+              {location === "home" ? <House size={15} /> : <Leaf size={15} />}
+              <span>
+                {location === "home"
+                  ? "Home sweet home"
+                  : `${game.name} Island`}
+              </span>
+            </span>
+          </div>
+          <div className="top-right-hud">
+            <div className="bells">
+              <span className="bell-bag">★</span>
+              <strong>{game.bells.toLocaleString()}</strong>
+            </div>
+            <button
+              className="round-hud"
+              onClick={() => open("pockets")}
+              aria-label="Open pockets"
+            >
+              <Backpack size={25} />
+              <kbd>B</kbd>
+            </button>
+          </div>
+          <div className="clock-hud">
+            <div className="clock-line">
+              <strong>{time[0]}</strong>
+              <span>{time[1]}</span>
+            </div>
+            <div className="date-line">
+              {clock.toLocaleDateString("en-US", {
+                month: "long",
+                day: "numeric",
+              })}
+              <span>
+                {clock.toLocaleDateString("en-US", { weekday: "short" })}.
+              </span>
+            </div>
+            <span className="save-indicator">
+              {saved ? <Check size={11} /> : <CircleHelp size={11} />}{" "}
+              {saved ? "Saved" : "Save unavailable"}
+            </span>
+          </div>
+          <div className="bottom-center-hud">
+            <div className="context-row">
+              <button
+                className="equipped-tool"
+                onClick={() => setToolWheel(true)}
+                aria-label="Choose a tool"
+              >
+                <ToolIcon tool={game.tool} size={35} />
+                <kbd>Tab</kbd>
+              </button>
+              {nearby ? (
+                <button
+                  className="action-prompt"
+                  onClick={() => sceneRef.current?.interact()}
+                >
+                  <kbd>E</kbd>
+                  {interactLabel}
+                  <span>{nearby.kind === "villager" ? nearby.name : ""}</span>
+                </button>
+              ) : (
+                <span className="equipped-name">
+                  {TOOL_INFO[game.tool].name}
+                </span>
+              )}
+            </div>
+            <span className="movement-hint">
+              <kbd>WASD</kbd> Move<span>·</span> Click to walk<span>·</span>
+              <kbd>1–4</kbd> Tools
+            </span>
+          </div>
+          {location === "island" ? (
+            <button
+              className="map-hud"
+              onClick={() => open("map")}
+              aria-label="Open island map"
+            >
+              <IslandMap player={game.player} />
+              <span>
+                <kbd>M</kbd> Map
+              </span>
+            </button>
+          ) : (
+            <div className="home-hud">
+              <button onClick={() => open("furnish")}>
+                <Hammer size={21} />
+                <span>Furnish</span>
+                <kbd>F</kbd>
+              </button>
+              <button onClick={() => enterLocation("island")}>
+                <DoorOpen size={21} />
+                <span>Go outside</span>
+              </button>
+            </div>
+          )}
+        </>
+      )}
 
-   <div className="island-clock"><div>{clockTime[0]}<span>{clockTime[1]?.toLowerCase()}</span><Sun size={21}/></div><span>{clock.toLocaleDateString('en-US',{month:'long',day:'numeric'})}<i/> {clock.toLocaleDateString('en-US',{weekday:'long'})}</span><p><span className="status-dot"/>{saved?'A little progress, safely saved.':'Save unavailable in this browser.'}</p></div>
+      {toast && (
+        <div
+          className={`toast ${toastPositive ? "success" : ""}`}
+          role="status"
+        >
+          {toastPositive ? <Sparkles size={20} /> : <Leaf size={20} />}
+          <span>{toast}</span>
+          <button
+            onClick={() => setToast("")}
+            aria-label="Dismiss notification"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
+      {fishing && (
+        <div
+          className={`fishing-hud ${fishing.phase === "bite" ? "bite" : ""}`}
+        >
+          <span className="fishing-exclamation">
+            {fishing.phase === "bite" ? "!" : "…"}
+          </span>
+          <button onClick={() => reelRef.current()}>
+            <kbd>E</kbd>
+            <strong>
+              {fishing.phase === "bite"
+                ? "Reel it in!"
+                : "Wait for the bobber…"}
+            </strong>
+          </button>
+          <span>
+            {fishing.phase === "bite"
+              ? "Now! Press E or Space."
+              : "Listen carefully. Something might be nibbling."}
+          </span>
+          <button
+            className="cancel-fishing"
+            onClick={() => {
+              setFishing(null);
+              sceneRef.current?.playAction("pickup");
+            }}
+          >
+            Put away
+          </button>
+        </div>
+      )}
+      {catchNotice && (
+        <div
+          className="catch-screen"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Your catch"
+        >
+          <div className="catch-art">
+            <span>✧</span>
+            <ItemArt item={catchNotice.item} />
+            <span>✧</span>
+          </div>
+          <div className="speech-bubble catch-bubble">
+            <p>{catchNotice.text}</p>
+            <button onClick={() => setCatchNotice(null)}>
+              Into my pockets! <kbd>E</kbd>
+            </button>
+          </div>
+        </div>
+      )}
+      {dialogue && (
+        <DialogueBox
+          speaker={dialogue.speaker}
+          message={dialogue.message}
+          animal={dialogue.animal}
+          friendship={villager?.friendship ?? 0}
+          onClose={() => setDialogue(null)}
+          choices={
+            dialogue.villagerId
+              ? [
+                  ...(dialogue.mode === "greeting"
+                    ? [
+                        {
+                          label: "Need a hand with anything?",
+                          action: requestHelp,
+                        },
+                      ]
+                    : []),
+                  ...(dialogue.mode === "request" &&
+                  villager?.request &&
+                  !villager.request.delivered
+                    ? [
+                        {
+                          label: villager.request.canDeliver
+                            ? "I brought what you wanted!"
+                            : `I’ll find ${villager.request.count} ${ITEM_INFO[villager.request.item].name.toLowerCase()}${villager.request.count > 1 ? "s" : ""}.`,
+                          action: villager.request.canDeliver
+                            ? deliver
+                            : () => setDialogue(null),
+                        },
+                      ]
+                    : []),
+                  {
+                    label:
+                      dialogue.mode === "thanks"
+                        ? "Happy to help!"
+                        : "See you around!",
+                    action: () => setDialogue(null),
+                  },
+                ]
+              : undefined
+          }
+        />
+      )}
 
-   <div className="tool-area">
-    {nearby&&!panel&&!dialogue&&!fishing&&<button className="interact-prompt" onClick={()=>sceneRef.current?.interact()}><kbd>E</kbd><span>{nearby.kind==='villager'?`Say hello to ${nearby.name}`:nearby.kind==='tree'?'Shake peach tree':nearby.kind==='fish'?'Cast a line':nearby.kind==='rock'?'Gather stone':nearby.kind==='shop'?'Browse the island market':nearby.kind==='home'?'Make yourself at home':nearby.kind==='shell'?'Pick up seashell':'Catch butterfly'}</span><MousePointer2 size={12}/></button>}
-    <div className="tool-dock"><div className="tools">{tools.map((tool,index)=><button key={tool} aria-label={`Equip ${TOOL_INFO[tool].name}`} aria-pressed={game.tool===tool} className={`tool-button ${game.tool===tool?'equipped':''}`} title={`${TOOL_INFO[tool].name} (${index+1})`} onClick={()=>chooseTool(tool)}><span className="tool-number">{index+1}</span><ToolIcon tool={tool}/><span className="tool-tooltip">{TOOL_INFO[tool].name}</span></button>)}</div><span className="dock-divider"/><button className={`decorate-button ${panel==='decorate'?'active':''}`} aria-label="Decorate island" onClick={()=>open('decorate')} title="Make it yours"><Hammer size={23}/><span>Decorate</span></button></div>
-    <div className="movement-hint"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to wander</span><i/><span><MousePointer2 size={12}/> click to explore</span><i/><span><kbd>E</kbd> interact</span></div>
-   </div>
+      {toolWheel && (
+        <div
+          className="tool-wheel-backdrop"
+          onClick={() => setToolWheel(false)}
+        >
+          <section
+            className="tool-wheel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choose your tool"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="wheel-label">What shall we do?</span>
+            {TOOLS.map((tool, index) => (
+              <button
+                key={tool}
+                className={`wheel-tool wheel-${index} ${game.tool === tool ? "active" : ""}`}
+                onClick={() => chooseTool(tool)}
+              >
+                <ToolIcon tool={tool} size={58} />
+                <strong>{TOOL_INFO[tool].name}</strong>
+                <kbd>{index + 1}</kbd>
+              </button>
+            ))}
+            <button
+              className="wheel-center"
+              onClick={() => setToolWheel(false)}
+              aria-label="Close tool wheel"
+            >
+              <X size={23} />
+            </button>
+            <span className="wheel-tip">
+              A good day starts with the right tool.
+            </span>
+          </section>
+        </div>
+      )}
 
-   <button className="minimap-card" aria-label="Open island map" onClick={()=>open('map')}><div className="minimap-heading"><span><Map size={13}/>{game.name} Island</span><Maximize2 size={12}/></div><IslandMap player={game.player}/><span className="map-caption"><span className="player-dot"/> YOU ARE HERE <kbd>M</kbd></span></button>
-   <div className="mobile-controls"><button aria-label="Move north" onClick={()=>sceneRef.current?.setWaypoint(game.player.x,game.player.z-3)}><ArrowUp/></button><div><button aria-label="Move west" onClick={()=>sceneRef.current?.setWaypoint(game.player.x-3,game.player.z)}><ArrowLeft/></button><button aria-label="Move south" onClick={()=>sceneRef.current?.setWaypoint(game.player.x,game.player.z+3)}><ArrowDown/></button><button aria-label="Move east" onClick={()=>sceneRef.current?.setWaypoint(game.player.x+3,game.player.z)}><ArrowRight/></button></div></div>
+      {currentFurniture && (
+        <div
+          className="furniture-controls"
+          role="dialog"
+          aria-label={`Arrange ${FURNITURE_INFO[currentFurniture.kind].name}`}
+        >
+          <div>
+            <span>{FURNITURE_INFO[currentFurniture.kind].emoji}</span>
+            <strong>{FURNITURE_INFO[currentFurniture.kind].name}</strong>
+            <button
+              onClick={() => setSelectedFurniture(null)}
+              aria-label="Finish arranging"
+            >
+              <Check size={22} />
+            </button>
+          </div>
+          <div className="furniture-actions">
+            <button
+              onClick={() => moveSelected(-0.5, 0)}
+              aria-label="Move furniture left"
+            >
+              <ArrowLeft />
+            </button>
+            <button
+              onClick={() => moveSelected(0, -0.5)}
+              aria-label="Move furniture back"
+            >
+              <ArrowUp />
+            </button>
+            <button
+              onClick={() => moveSelected(0, 0.5)}
+              aria-label="Move furniture forward"
+            >
+              <ArrowDown />
+            </button>
+            <button
+              onClick={() => moveSelected(0.5, 0)}
+              aria-label="Move furniture right"
+            >
+              <ArrowRight />
+            </button>
+            <button
+              onClick={() => moveSelected(0, 0, true)}
+              aria-label="Rotate furniture"
+            >
+              <RotateCw />
+            </button>
+            <button
+              onClick={() => {
+                applyResult(
+                  returnFurniture(gameRef.current, currentFurniture.id),
+                );
+                setSelectedFurniture(null);
+              }}
+              aria-label="Put furniture in pockets"
+            >
+              <Backpack />
+            </button>
+          </div>
+          <small>
+            Arrow keys to move · R to rotate · Esc when you’re happy
+          </small>
+        </div>
+      )}
 
-   <div className="toast-stack" aria-live="polite">{toasts.map(toast=><div className={`toast ${toast.positive?'positive':''}`} key={toast.id}>{toast.positive?<Sparkles size={17}/>:<Leaf size={17}/>}<span>{toast.message}</span><button onClick={()=>setToasts(prev=>prev.filter(t=>t.id!==toast.id))} aria-label="Dismiss notification"><X size={14}/></button></div>)}</div>
+      {panel && (
+        <div
+          className={`panel-backdrop panel-backdrop-${panel}`}
+          onClick={() => setPanel(null)}
+        >
+          <section
+            className={`game-panel panel-${panel}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="panel-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              className="panel-close"
+              onClick={() => setPanel(null)}
+              aria-label="Close panel"
+            >
+              <X size={23} />
+            </button>
+            {panel === "phone" && (
+              <>
+                <div className="phone-topline">
+                  <span>{time[0]}</span>
+                  <span>▰ ▰ ▰</span>
+                </div>
+                <h2 id="panel-title">Island phone</h2>
+                <span className="phone-greeting">
+                  A whole island in your pocket.
+                </span>
+                <div className="phone-apps">
+                  {[
+                    {
+                      id: "pockets",
+                      name: "Pockets",
+                      icon: <Backpack />,
+                      color: "yellow",
+                    },
+                    { id: "map", name: "Map", icon: <Map />, color: "green" },
+                    {
+                      id: "friends",
+                      name: "Neighbors",
+                      icon: <Heart />,
+                      color: "pink",
+                    },
+                    {
+                      id: "journal",
+                      name: "Island life",
+                      icon: <BookOpen />,
+                      color: "blue",
+                    },
+                    {
+                      id: location === "home" ? "furnish" : "decorate",
+                      name: "Decorate",
+                      icon: <Hammer />,
+                      color: "orange",
+                    },
+                    {
+                      id: "home",
+                      name: "My home",
+                      icon: <House />,
+                      color: "teal",
+                    },
+                    {
+                      id: "settings",
+                      name: "Settings",
+                      icon: <Settings />,
+                      color: "purple",
+                    },
+                    {
+                      id: "help",
+                      name: "How to play",
+                      icon: <CircleHelp />,
+                      color: "mint",
+                    },
+                  ].map((app) => (
+                    <button key={app.id} onClick={() => open(app.id as Panel)}>
+                      <span className={`phone-app-icon ${app.color}`}>
+                        {app.icon}
+                      </span>
+                      <strong>{app.name}</strong>
+                    </button>
+                  ))}
+                </div>
+                <div className="phone-bottom">
+                  <LeafMark />
+                  <span>{game.name} Island</span>
+                </div>
+              </>
+            )}
 
-   {dialogue&&<div className="dialogue-wrap"><div className="dialogue-card" role="dialog" aria-modal="true" aria-labelledby="speaker-name"><Avatar animal={dialogue.animal}/><div><span className="speaker-tag" id="speaker-name">{dialogue.speaker}</span><p>{dialogue.message}</p><button className="text-button" onClick={()=>setDialogue(null)}>See you around! <ArrowRight size={15}/></button></div><button className="modal-close" onClick={()=>setDialogue(null)} aria-label="Close conversation"><X size={18}/></button></div></div>}
+            {panel === "pockets" && (
+              <>
+                <div className="panel-title-line">
+                  <Backpack />
+                  <h2 id="panel-title">Pockets</h2>
+                </div>
+                <p className="panel-subtitle">
+                  Everything you picked up along the way.
+                </p>
+                <div className="pockets-grid">
+                  {Array.from({ length: 20 }, (_, i) => {
+                    const entry = pocketEntries[i];
+                    return entry ? (
+                      <button
+                        key={entry.key}
+                        className={`pocket-slot ${entry.item === selectedItem || entry.furniture === heldFurniture ? "selected" : ""}`}
+                        onClick={() => {
+                          setSelectedItem(entry.item ?? null);
+                          setHeldFurniture(entry.furniture ?? null);
+                        }}
+                        aria-label={`${entry.label}, ${entry.count}`}
+                      >
+                        <ItemArt item={entry.item ?? "furniture"} />
+                        <span>{entry.count}</span>
+                      </button>
+                    ) : (
+                      <span className="pocket-slot empty" key={`empty-${i}`} />
+                    );
+                  })}
+                </div>
+                <div className="pocket-tools">
+                  {TOOLS.map((tool, i) => (
+                    <button
+                      key={tool}
+                      onClick={() => {
+                        chooseTool(tool);
+                        setPanel(null);
+                      }}
+                    >
+                      <ToolIcon tool={tool} size={33} />
+                      <span>{TOOL_INFO[tool].name}</span>
+                      <kbd>{i + 1}</kbd>
+                    </button>
+                  ))}
+                </div>
+                <div className="pocket-detail">
+                  {heldFurniture ? (
+                    <>
+                      <span className="held-furniture-art">
+                        {FURNITURE_INFO[heldFurniture].emoji}
+                      </span>
+                      <div>
+                        <strong>{FURNITURE_INFO[heldFurniture].name}</strong>
+                        <p>{FURNITURE_INFO[heldFurniture].description}</p>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        onClick={() =>
+                          location === "home"
+                            ? furnish(heldFurniture)
+                            : travelTo({ entityId: "home" })
+                        }
+                      >
+                        {location === "home" ? "Place" : "Take home"}
+                      </button>
+                    </>
+                  ) : selectedItem ? (
+                    <>
+                      <ItemArt item={selectedItem} />
+                      <div>
+                        <strong>{ITEM_INFO[selectedItem].name}</strong>
+                        <p>{ITEM_INFO[selectedItem].description}</p>
+                      </div>
+                      <span className="item-value">
+                        {selectedItem === "flower"
+                          ? "Plant outside"
+                          : `${ITEM_INFO[selectedItem].price} bells each`}
+                      </span>
+                    </>
+                  ) : (
+                    <span>Choose an item to take a closer look.</span>
+                  )}
+                </div>
+                <div className="pocket-footer">
+                  <span>
+                    <Backpack size={18} />
+                    {totalItems} items
+                  </span>
+                  <span>
+                    <Coins size={18} />
+                    {sellValue.toLocaleString()} bell value
+                  </span>
+                  <button
+                    onClick={() =>
+                      open(location === "home" ? "furnish" : "decorate")
+                    }
+                  >
+                    <Hammer size={17} />
+                    Decorate
+                  </button>
+                </div>
+              </>
+            )}
 
-   {fishing&&<div className="modal-backdrop fishing-backdrop"><section className="modal fishing-modal" role="dialog" aria-modal="true" aria-labelledby="fishing-title"><button className="modal-close" onClick={()=>setFishing(null)} aria-label="Stop fishing"><X size={19}/></button><div className="modal-illustration fish-illustration"><Fish size={40}/><span>≈</span></div><span className="eyebrow">A MOMENT OF PATIENCE</span><h2 id="fishing-title">You've got a nibble!</h2><p>Reel it in when the marker reaches the green.</p><div className="fishing-meter" role="meter" aria-label="Fishing timing" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fishingProgress*100)} aria-valuetext={fishingProgress>=.47&&fishingProgress<=.78?'Reel now':'Wait for green'}><span className="catch-zone"/><i style={{left:`${fishingProgress*100}%`}}/></div><button className="primary-button" onClick={()=>fishingRef.current()}>Reel it in <kbd>space</kbd></button><small>No hurry. Wait for just the right moment.</small></section></div>}
+            {panel === "map" && (
+              <>
+                <div className="panel-title-line">
+                  <Map />
+                  <h2 id="panel-title">{game.name} Island</h2>
+                </div>
+                <p className="panel-subtitle">
+                  Somewhere good to get a little lost.
+                </p>
+                <IslandMap
+                  player={game.player}
+                  large
+                  onSelect={(x, z) => travelTo({ point: { x, z } })}
+                />
+                <div className="map-legend">
+                  <span>
+                    <i className="map-home" />
+                    Your home
+                  </span>
+                  <span>
+                    <i className="map-market" />
+                    Market
+                  </span>
+                  <span>
+                    <i className="map-you" />
+                    You
+                  </span>
+                </div>
+                <div className="landmarks">
+                  {WORLD_ENTITIES.filter((e) =>
+                    ["home", "shop", "villager"].includes(e.kind),
+                  ).map((entity) => (
+                    <button
+                      key={entity.id}
+                      onClick={() => travelTo({ entityId: entity.id })}
+                    >
+                      {entity.kind === "home" ? (
+                        <House size={19} />
+                      ) : entity.kind === "shop" ? (
+                        <ShoppingBasket size={19} />
+                      ) : (
+                        <Heart size={19} />
+                      )}
+                      <span>{entity.name}</span>
+                      <ChevronRight size={17} />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
 
-   {panel&&<div className={`modal-backdrop ${panel==='pockets'||panel==='decorate'?'drawer-backdrop':''}`} onClick={()=>setPanel(null)}><section className={`modal panel-${panel}`} onClick={event=>event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="panel-title"><button className="modal-close" onClick={()=>setPanel(null)} aria-label="Close panel"><X size={20}/></button>
-    {panel==='pockets'&&<><div className="modal-icon"><Backpack size={24}/></div><span className="eyebrow">A FEW FOUND TREASURES</span><h2 id="panel-title">In your pockets.</h2><p>Little things collected along the way.</p><div className="pocket-summary"><span>{totalItems} items tucked away</span><span><Coins size={14}/>{sellValue.toLocaleString()} bell value</span></div><div className="inventory-grid">{(Object.entries(ITEM_INFO) as [ItemId,typeof ITEM_INFO[ItemId]][]).map(([id,item])=><div key={id} className={`inventory-item ${game.inventory[id]===0?'empty':''}`} title={item.description}><span className="item-emoji">{item.emoji}</span><strong>{item.name}</strong><span>{game.inventory[id]===0?'Not found yet':`× ${game.inventory[id]}`}</span></div>)}</div><div className="soft-note"><Leaf size={17}/><span>A pocketful of possibilities. Flowers can be planted using Decorate.</span></div><button className="primary-button full-width" onClick={()=>setPanel('shop')}>Visit the island market <ArrowRight size={17}/></button></>}
-    {panel==='guide'&&<><div className="modal-icon"><BookOpen size={24}/></div><span className="eyebrow">YOUR ISLAND JOURNAL</span><h2 id="panel-title">Little things, lovely days.</h2><p>Settle in at your own pace. Every small adventure counts.</p><div className="journal-summary"><Sprout size={21}/><div><strong>{progress} of {TASKS.length} little joys complete</strong><span>There's no wrong way to spend a day.</span></div><span className="journal-progress">{Math.round(progress/TASKS.length*100)}%</span></div><div className="journal-tasks">{TASKS.map(task=>{const current=taskProgress(game,task),done=game.completed.includes(task.id),claimable=current>=task.target;return <div className={`journal-task ${done?'done':''}`} key={task.id}><div className="journal-task-icon">{done?<CheckCheck size={22}/>:task.metric==='fish'?<Fish size={22}/>:task.metric==='met'?<Heart size={22}/>:task.metric==='planted'?<Flower2 size={22}/>:task.metric==='sold'?<ShoppingBasket size={22}/>:<Leaf size={22}/>}</div><div className="journal-task-copy"><h3>{task.title}</h3><p>{task.description}</p><div className="task-progress"><span style={{width:`${current/task.target*100}%`}}/></div><small>{current} / {task.target}</small></div><button disabled={!claimable||done} className={`reward-button ${claimable&&!done?'claimable':''}`} onClick={()=>{const result=claimTask(game,task.id);commit(result.state);notify(result.message);if(game.sound)chime();}}>{done?<><Check size={13}/>Claimed</>:<><span>✦ {task.reward}</span>{claimable?'Collect':'bells'}</>}</button></div>;})}</div></>}
-    {panel==='map'&&<><div className="modal-icon"><Map size={24}/></div><span className="eyebrow">THE WORLD CAN WAIT</span><h2 id="panel-title">Your own little island.</h2><p>Pick a place on the map and take the scenic route.</p><IslandMap player={game.player} large onSelect={(x,z)=>{sceneRef.current?.setWaypoint(x,z);setPanel(null);}}/><div className="map-legend"><span><i className="map-house"/>Your cottage</span><span><i className="map-shop"/>The market</span><span><i className="player-dot"/>You</span></div><div className="landmark-list">{WORLD_ENTITIES.filter(e=>['home','shop','villager'].includes(e.kind)).map(e=><button key={e.id} onClick={()=>{sceneRef.current?.setWaypoint(e.x,e.z);setPanel(null);notify(`A little stroll to ${e.name}.`,false);}}>{e.kind==='home'?<House size={17}/>:e.kind==='shop'?<ShoppingBasket size={17}/>:<Heart size={17}/>}<span>{e.name}</span><ArrowRight size={15}/></button>)}</div></>}
-    {panel==='decorate'&&<><div className="modal-icon"><Hammer size={24}/></div><span className="eyebrow">MAKE IT YOURS</span><h2 id="panel-title">A place to put down roots.</h2><p>Add a little charm right where you're standing.</p><div className="decor-list">{(Object.entries(DECORATION_INFO) as [DecorationKind,typeof DECORATION_INFO[DecorationKind]][]).map(([id,item])=><button className="decor-item" key={id} onClick={()=>decorate(id)}><span className="decor-emoji">{item.emoji}</span><span><strong>{item.name}</strong><small>{item.description}</small><span className="decor-price">{id==='flowers'?`1 flower seed · ${game.inventory.flower} in pockets`:`✦ ${item.price.toLocaleString()} bells`}</span></span><Plus size={20}/></button>)}</div><div className="soft-note"><MousePointer2 size={19}/><span>Walk to your favorite spot first, then choose a decoration. A place feels like home one little detail at a time.</span></div><div className="decor-footer"><Flower2 size={16}/>{game.decorations.length} little touches of home</div></>}
-    {panel==='shop'&&<><div className="shop-banner"><span className="awning-stripe"/><ShoppingBasket size={37}/><span className="shop-banner-text">THE ISLAND MARKET<small>Good finds. Good neighbors.</small></span></div><span className="eyebrow">A LITTLE SOMETHING LOCAL</span><h2 id="panel-title">Welcome to the market.</h2><p>Trade your treasures for a few bells and a fresh beginning.</p><div className="shop-sell"><div><h3>A pocketful of good finds</h3><p>We'll take fruit, fish, shells, stone, wood, and bugs.<br/>Your flower seeds are yours to keep.</p></div><span className="sell-total">✦ {sellValue.toLocaleString()}<small>bells for your finds</small></span></div><button className="primary-button full-width" disabled={sellValue===0} onClick={()=>{const result=sellItems(game);commit(result.state);notify(result.message);if(game.sound)chime();}}>{sellValue?'Sell collected items':'Come back with a little treasure'}{sellValue>0&&<ArrowRight size={17}/>}</button><h3 className="section-label">FOR A LITTLE GARDEN OF YOUR OWN</h3><div className="seed-product"><span>🌼</span><div><strong>Wildflower seeds</strong><p>A bright little patch of happiness.</p></div><button className="secondary-button" disabled={game.bells<80} onClick={()=>{commit({...game,bells:game.bells-80,inventory:{...game.inventory,flower:game.inventory.flower+3}});notify('Three wildflower seeds, full of possibilities.');}}>3 seeds · ✦ 80</button></div></>}
-    {panel==='home'&&<><div className="home-art"><House size={62} strokeWidth={1.2}/><span>✦</span><Sprout size={28}/></div><span className="eyebrow">HOME, SWEET LITTLE HOME</span><h2 id="panel-title">The kettle's always on.</h2><p>Your own cozy corner on {game.name} Island.<br/>A place to rest, recharge, and dream of tomorrow.</p><div className="home-stats"><div><strong>{game.day}</strong><span>island days</span></div><div><strong>{game.met.length}</strong><span>new friends</span></div><div><strong>{game.decorations.length}</strong><span>homey touches</span></div></div><button className="primary-button full-width" onClick={rest}><Moon size={17}/>Rest until tomorrow</button><small className="rest-note">A new day brings fresh fruit, fish, and shells.</small><button className="text-button centered" onClick={()=>setPanel('decorate')}>Make this place a little more you <ArrowRight size={15}/></button></>}
-    {panel==='settings'&&<><div className="modal-icon"><Settings size={24}/></div><span className="eyebrow">JUST THE WAY YOU LIKE IT</span><h2 id="panel-title">Island comforts.</h2><p>A few small things to make you feel at home.</p><label className="setting-label" htmlFor="island-name">YOUR ISLAND'S NAME</label><form className="name-form" onSubmit={event=>{event.preventDefault();const name=nameDraft.trim().slice(0,18);if(name){commit({...game,name});notify(`Welcome to ${name} Island.`);}}}><input id="island-name" value={nameDraft} maxLength={18} onChange={event=>setNameDraft(event.target.value)} placeholder="Clover"/><span>Island</span><button type="submit" aria-label="Save island name"><Check size={18}/></button></form><span className="setting-label">SET THE MOOD</span><div className="time-options">{(['day','sunset','night'] as TimeOfDay[]).map(time=><button className={game.timeOfDay===time?'active':''} onClick={()=>commit({...game,timeOfDay:time})} key={time}>{time==='day'?<Sun size={22}/>:time==='sunset'?<Sunset size={22}/>:<Moon size={22}/>}<span>{time==='day'?'Sunny day':time==='sunset'?'Golden hour':'Starry night'}</span></button>)}</div><button className="sound-setting" onClick={toggleSound}><span><Volume2 size={20}/><span>Island sounds<small>A soft little soundtrack for wandering.</small></span></span><span className={`toggle ${game.sound?'on':''}`}><i/></span></button><div className="save-note"><CheckCheck size={17}/><span>{saved?'Your island saves automatically on this browser.':'Local storage is unavailable. Keep this tab open to retain progress.'}</span></div>{resetConfirm?<div className="reset-confirm"><strong>Begin on a brand-new island?</strong><p>Your current island, pockets, and progress will be cleared.</p><button className="secondary-button" onClick={()=>{const next=createNewGame();commit(next);setNameDraft(next.name);sceneRef.current?.setPlayer(next.player);setAmbient(false);setResetConfirm(false);setPanel(null);notify('A fresh little beginning. Welcome home.');}}>Yes, a fresh start</button><button className="text-button" onClick={()=>setResetConfirm(false)}>Keep my island</button></div>:<button className="text-button reset-button" onClick={()=>setResetConfirm(true)}><RotateCcw size={14}/>Start a new island</button>}</>}
-    {panel==='help'&&<><div className="modal-icon"><Compass size={24}/></div><span className="eyebrow">NO RUSH. NO RULEBOOK.</span><h2 id="panel-title">Find your island rhythm.</h2><p>A few things to know before you wander.</p><div className="help-rows"><div><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>Wander around. Arrow keys work too.</span></div><div><MousePointer2 size={23}/><span>Click the ground to walk. Click a tree, neighbor, or building to visit.</span></div><div><kbd>E</kbd><span>Say hello, pick something up, or use your tool.</span></div><div><span><kbd>1</kbd>–<kbd>4</kbd></span><span>Pick a tool. Hands for fruit and shells, net for bugs, rod for fish, shovel for stone.</span></div><div><Hammer size={22}/><span>Decorate your favorite spot with flowers, a bench, or a lantern.</span></div><div><House size={22}/><span>Visit home and rest to begin a new day. The island's resources will return.</span></div></div><button className="primary-button full-width" onClick={()=>setPanel(null)}>Sounds like a lovely day <ArrowRight size={17}/></button></>}
-   </section></div>}
-  </main>
-  <footer className="app-footer"><span><Leaf size={11}/> A little less hurry. A little more happy.</span><span>Made for the moment.<span className="footer-flower">✳</span></span></footer>
- </div>;
+            {panel === "friends" && (
+              <>
+                <div className="panel-title-line">
+                  <Heart />
+                  <h2 id="panel-title">Your neighbors</h2>
+                </div>
+                <p className="panel-subtitle">
+                  A little island. A few familiar faces.
+                </p>
+                <div className="neighbor-list">
+                  {Object.entries(VILLAGER_INFO).map(([id, person]) => {
+                    const friend = getVillagerDialogue(game, id),
+                      met = game.met.includes(person.name);
+                    return (
+                      <div className="neighbor-card" key={id}>
+                        <Avatar animal={person.animal} />
+                        <div>
+                          <h3>
+                            {person.name}
+                            <span>{person.personality}</span>
+                          </h3>
+                          <div className="friendship-hearts">
+                            {Array.from({ length: 5 }, (_, i) => (
+                              <Heart
+                                size={16}
+                                key={i}
+                                fill={
+                                  friend.friendship > i * 4
+                                    ? "currentColor"
+                                    : "none"
+                                }
+                              />
+                            ))}
+                          </div>
+                          <p>
+                            {!met
+                              ? "You haven’t met yet. Go say hello!"
+                              : friend.request?.delivered
+                                ? "You helped out today. Come back tomorrow!"
+                                : `${person.request.text}`}
+                          </p>
+                          <button onClick={() => travelTo({ entityId: id })}>
+                            Find {person.name}
+                            <ArrowRight size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {panel === "shop" && (
+              <>
+                <div className="shop-heading">
+                  <Avatar animal="bear" />
+                  <div>
+                    <span>WELCOME TO</span>
+                    <h2 id="panel-title">Fern & Fig</h2>
+                    <p>Something new for somewhere you love.</p>
+                  </div>
+                </div>
+                <div className="shop-tabs">
+                  {(["furniture", "sell", "garden"] as const).map((tab) => (
+                    <button
+                      className={shopTab === tab ? "active" : ""}
+                      key={tab}
+                      onClick={() => setShopTab(tab)}
+                    >
+                      {tab === "furniture"
+                        ? "For your home"
+                        : tab === "sell"
+                          ? "Sell items"
+                          : "Garden"}
+                    </button>
+                  ))}
+                </div>
+                <div className="shop-wallet">
+                  <span>Your bells</span>
+                  <strong>★ {game.bells.toLocaleString()}</strong>
+                </div>
+                {shopTab === "furniture" ? (
+                  <div className="catalog-grid">
+                    {furnitureKinds.map((kind) => {
+                      const item = FURNITURE_INFO[kind];
+                      return (
+                        <button
+                          className="catalog-item"
+                          key={kind}
+                          disabled={game.bells < item.price}
+                          onClick={() =>
+                            applyResult(buyFurniture(gameRef.current, kind))
+                          }
+                        >
+                          <span className="catalog-art">{item.emoji}</span>
+                          <strong>{item.name}</strong>
+                          <small>{item.description}</small>
+                          <span className="price-tag">
+                            ★ {item.price.toLocaleString()}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : shopTab === "sell" ? (
+                  <div className="sell-content">
+                    <span className="sell-bag">💰</span>
+                    <h3>Let’s see what you found!</h3>
+                    <p>
+                      Fruit, fish, bugs, shells, stone, and wood.
+                      <br />
+                      We’ll leave your flower seeds in your pockets.
+                    </p>
+                    <div className="sale-items">
+                      {ITEM_ORDER.filter(
+                        (id) => id !== "flower" && game.inventory[id] > 0,
+                      ).map((id) => (
+                        <span key={id}>
+                          <ItemArt item={id} />
+                          <small>×{game.inventory[id]}</small>
+                        </span>
+                      ))}
+                    </div>
+                    <strong className="sale-value">
+                      {sellValue.toLocaleString()}
+                      <span>bells</span>
+                    </strong>
+                    <button
+                      className="primary-button"
+                      disabled={!sellValue}
+                      onClick={() => applyResult(sellItems(gameRef.current))}
+                    >
+                      {sellValue
+                        ? "It’s a deal!"
+                        : "Come back with something to sell"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="garden-shop">
+                    <ItemArt item="flower" />
+                    <h3>Wildflower seeds</h3>
+                    <p>Three chances to brighten up your island.</p>
+                    <button
+                      className="primary-button"
+                      disabled={game.bells < 80}
+                      onClick={() => {
+                        commit({
+                          ...game,
+                          bells: game.bells - 80,
+                          inventory: {
+                            ...game.inventory,
+                            flower: game.inventory.flower + 3,
+                          },
+                        });
+                        notify(
+                          "Three flower seeds. Find them in Decorate outside.",
+                        );
+                      }}
+                    >
+                      3 seeds · 80 bells
+                    </button>
+                  </div>
+                )}
+                <span className="shop-footnote">
+                  Furniture goes into your pockets. Place it inside your house.
+                </span>
+              </>
+            )}
+
+            {(panel === "decorate" || panel === "furnish") && (
+              <>
+                <div className="panel-title-line">
+                  <Hammer />
+                  <h2 id="panel-title">
+                    {panel === "furnish"
+                      ? "Make yourself at home"
+                      : "Make it yours"}
+                  </h2>
+                </div>
+                <p className="panel-subtitle">
+                  {panel === "furnish"
+                    ? "Your things, just where you like them."
+                    : "Find your favorite spot, then add a little you."}
+                </p>
+                {panel === "furnish" && location !== "home" ? (
+                  <div className="empty-state">
+                    <House size={50} />
+                    <h3>Home is the place.</h3>
+                    <p>Visit your cottage to place your furniture.</p>
+                    <button
+                      className="primary-button"
+                      onClick={() => travelTo({ entityId: "home" })}
+                    >
+                      Find my cottage
+                    </button>
+                  </div>
+                ) : panel === "furnish" ? (
+                  <>
+                    <div className="catalog-grid owned-furniture">
+                      {furnitureKinds
+                        .filter((kind) => game.furniture[kind] > 0)
+                        .map((kind) => (
+                          <button
+                            className="catalog-item"
+                            key={kind}
+                            onClick={() => furnish(kind)}
+                          >
+                            <span className="catalog-art">
+                              {FURNITURE_INFO[kind].emoji}
+                            </span>
+                            <strong>{FURNITURE_INFO[kind].name}</strong>
+                            <span className="owned-count">
+                              × {game.furniture[kind]} · Place
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                    {!furnitureKinds.some(
+                      (kind) => game.furniture[kind] > 0,
+                    ) && (
+                      <div className="empty-state">
+                        <LeafMark />
+                        <h3>Room for something new.</h3>
+                        <p>
+                          Find furniture at Fern & Fig, or move the things you
+                          already own.
+                        </p>
+                      </div>
+                    )}
+                    <h3 className="section-title">ALREADY AT HOME</h3>
+                    <div className="room-items">
+                      {game.room.map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            setSelectedFurniture(item.id);
+                            setPanel(null);
+                          }}
+                        >
+                          <span>{FURNITURE_INFO[item.kind].emoji}</span>
+                          <strong>{FURNITURE_INFO[item.kind].name}</strong>
+                          <span>
+                            Arrange <ArrowRight size={14} />
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="soft-tip">
+                      You can also click any piece of furniture in your room to
+                      move, rotate, or put it away.
+                    </p>
+                  </>
+                ) : (
+                  <div className="outdoor-decor">
+                    {(
+                      Object.entries(DECORATION_INFO) as [
+                        DecorationKind,
+                        (typeof DECORATION_INFO)[DecorationKind],
+                      ][]
+                    ).map(([kind, item]) => (
+                      <button key={kind} onClick={() => decorate(kind)}>
+                        <span>{item.emoji}</span>
+                        <div>
+                          <strong>{item.name}</strong>
+                          <p>{item.description}</p>
+                          <small>
+                            {kind === "flowers"
+                              ? `${game.inventory.flower} flower seeds in pockets`
+                              : `★ ${item.price} bells`}
+                          </small>
+                        </div>
+                        <ChevronRight size={20} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {panel === "home" && (
+              <>
+                <div className="panel-title-line">
+                  <House />
+                  <h2 id="panel-title">Home, sweet home.</h2>
+                </div>
+                <p className="panel-subtitle">
+                  A place that gets a little more you every day.
+                </p>
+                <div className="home-summary">
+                  <House size={61} strokeWidth={1.5} />
+                  <div>
+                    <h3>
+                      {game.homeLevel
+                        ? "A room to grow in"
+                        : "Your first island home"}
+                    </h3>
+                    <p>
+                      {game.room.length} pieces of furniture ·{" "}
+                      {game.homeLevel ? "Spacious room" : "Cozy room"}
+                    </p>
+                  </div>
+                </div>
+                {game.homeDebt > 0 ? (
+                  <div className="loan-card">
+                    <span>YOUR HOME EXPANSION</span>
+                    <h3>
+                      {game.homeDebt.toLocaleString()}
+                      <small>bells remaining</small>
+                    </h3>
+                    <div className="loan-progress">
+                      <i
+                        style={{
+                          width: `${(1 - game.homeDebt / 9800) * 100}%`,
+                        }}
+                      />
+                    </div>
+                    <p>
+                      Pay it off to make room for more of your favorite things.
+                    </p>
+                    <div className="loan-buttons">
+                      <button
+                        disabled={game.bells < Math.min(500, game.homeDebt)}
+                        onClick={() =>
+                          applyResult(payHomeDebt(gameRef.current, 500))
+                        }
+                      >
+                        Pay {Math.min(500, game.homeDebt)} bells
+                      </button>
+                      <button
+                        disabled={game.bells === 0}
+                        onClick={() =>
+                          applyResult(
+                            payHomeDebt(
+                              gameRef.current,
+                              Math.min(game.bells, game.homeDebt),
+                            ),
+                          )
+                        }
+                      >
+                        Pay as much as I can
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="home-paid">
+                    <Sparkles />
+                    <strong>Paid in full!</strong>
+                    <p>Your room is bigger, and your possibilities are too.</p>
+                  </div>
+                )}
+                <div className="home-options">
+                  {location === "home" ? (
+                    <>
+                      <button className="primary-button" onClick={rest}>
+                        <Moon size={20} />
+                        Rest until tomorrow
+                      </button>
+                      <button
+                        className="secondary-button"
+                        onClick={() => open("furnish")}
+                      >
+                        <Hammer size={19} />
+                        Arrange my room
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="primary-button"
+                      onClick={() => travelTo({ entityId: "home" })}
+                    >
+                      Walk home <ArrowRight size={19} />
+                    </button>
+                  )}
+                </div>
+                <small className="rest-note">
+                  A new day brings fresh resources and new requests from your
+                  neighbors.
+                </small>
+              </>
+            )}
+
+            {panel === "journal" && (
+              <>
+                <div className="panel-title-line">
+                  <BookOpen />
+                  <h2 id="panel-title">Getting settled</h2>
+                </div>
+                <p className="panel-subtitle">
+                  A few first steps. The rest is up to you.
+                </p>
+                <div className="journal-summary">
+                  <LeafMark />
+                  <span>
+                    <strong>
+                      {completedGoals} / {TASKS.length}
+                    </strong>{" "}
+                    island milestones
+                  </span>
+                </div>
+                <div className="journal-tasks">
+                  {TASKS.map((task) => {
+                    const current = taskProgress(game, task),
+                      done = game.completed.includes(task.id),
+                      claimable = current >= task.target;
+                    return (
+                      <div className="journal-task" key={task.id}>
+                        <span className={`task-stamp ${done ? "done" : ""}`}>
+                          {done ? <Check /> : <Leaf />}
+                        </span>
+                        <div>
+                          <h3>{task.title}</h3>
+                          <p>{task.description}</p>
+                          <div className="task-progress">
+                            <span
+                              style={{
+                                width: `${(current / task.target) * 100}%`,
+                              }}
+                            />
+                          </div>
+                          <small>
+                            {current} / {task.target}
+                          </small>
+                        </div>
+                        <button
+                          className={claimable && !done ? "claimable" : ""}
+                          disabled={!claimable || done}
+                          onClick={() =>
+                            applyResult(claimTask(gameRef.current, task.id))
+                          }
+                        >
+                          {done
+                            ? "Claimed"
+                            : claimable
+                              ? `Collect ${task.reward}`
+                              : `★ ${task.reward}`}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {panel === "settings" && (
+              <>
+                <div className="panel-title-line">
+                  <Settings />
+                  <h2 id="panel-title">Your island, your way.</h2>
+                </div>
+                <label className="setting-label" htmlFor="island-name">
+                  ISLAND NAME
+                </label>
+                <form
+                  className="name-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const name = nameDraft.trim().slice(0, 18);
+                    if (name) {
+                      commit({ ...game, name });
+                      notify(`Welcome to ${name} Island.`);
+                    }
+                  }}
+                >
+                  <input
+                    id="island-name"
+                    value={nameDraft}
+                    maxLength={18}
+                    onChange={(event) => setNameDraft(event.target.value)}
+                  />
+                  <span>Island</span>
+                  <button type="submit" aria-label="Save island name">
+                    <Check size={23} />
+                  </button>
+                </form>
+                <span className="setting-label">TIME OF DAY</span>
+                <div className="setting-options">
+                  {(["day", "sunset", "night"] as TimeOfDay[]).map((value) => (
+                    <button
+                      key={value}
+                      className={game.timeOfDay === value ? "active" : ""}
+                      onClick={() => commit({ ...game, timeOfDay: value })}
+                    >
+                      {value === "day" ? (
+                        <Sun />
+                      ) : value === "sunset" ? (
+                        <Sunset />
+                      ) : (
+                        <Moon />
+                      )}
+                      <span>
+                        {value === "day"
+                          ? "Daylight"
+                          : value === "sunset"
+                            ? "Sunset"
+                            : "Night"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <span className="setting-label">CAMERA DISTANCE</span>
+                <div className="setting-options camera-options">
+                  {(["close", "normal", "wide"] as const).map((value) => (
+                    <button
+                      className={cameraView === value ? "active" : ""}
+                      key={value}
+                      onClick={() => {
+                        setCameraView(value);
+                        sceneRef.current?.setCamera(value);
+                      }}
+                    >
+                      {value === "close"
+                        ? "Closer"
+                        : value === "normal"
+                          ? "Comfortable"
+                          : "Further"}
+                    </button>
+                  ))}
+                </div>
+                <button className="sound-setting" onClick={toggleSound}>
+                  {game.sound ? <Volume2 /> : <VolumeX />}
+                  <span>Island sounds</span>
+                  <span className={`toggle ${game.sound ? "on" : ""}`}>
+                    <i />
+                  </span>
+                </button>
+                <p className="soft-tip">
+                  {saved
+                    ? "Your island saves automatically in this browser."
+                    : "Saving is unavailable. Keep this tab open to retain your progress."}
+                </p>
+                {resetConfirm ? (
+                  <div className="reset-confirm">
+                    <strong>Start a brand-new island?</strong>
+                    <p>
+                      Your current progress, friendships, and furniture will be
+                      cleared.
+                    </p>
+                    <button
+                      onClick={() => {
+                        const state = createNewGame();
+                        commit(state);
+                        setNameDraft(state.name);
+                        enterLocation("island");
+                        sceneRef.current?.setPlayer(state.player);
+                        setAmbient(false);
+                        notify("A brand-new island. A brand-new beginning.");
+                      }}
+                    >
+                      Start fresh
+                    </button>
+                    <button onClick={() => setResetConfirm(false)}>
+                      Keep my island
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="reset-link"
+                    onClick={() => setResetConfirm(true)}
+                  >
+                    <RotateCcw size={14} />
+                    Start a new island
+                  </button>
+                )}
+              </>
+            )}
+
+            {panel === "help" && (
+              <>
+                <div className="panel-title-line">
+                  <Compass />
+                  <h2 id="panel-title">Welcome to island life.</h2>
+                </div>
+                <p className="panel-subtitle">
+                  There’s no rush. Here are a few things you can do.
+                </p>
+                <div className="help-steps">
+                  <div>
+                    <span>1</span>
+                    <p>
+                      <strong>Get to know your neighbors.</strong>Walk with WASD
+                      or click the ground. Press E nearby to talk. Ask what they
+                      need, then bring it back for friendship and bells.
+                    </p>
+                  </div>
+                  <div>
+                    <span>2</span>
+                    <p>
+                      <strong>Find something good.</strong>Shake fruit trees
+                      with empty hands. Catch butterflies with a net. Use the
+                      shovel on rocks. Switch tools with 1–4 or Tab.
+                    </p>
+                  </div>
+                  <div>
+                    <span>3</span>
+                    <p>
+                      <strong>Cast a line.</strong>Equip the fishing rod and
+                      click a fish. Wait for the bobber to dip, then press E or
+                      Space quickly!
+                    </p>
+                  </div>
+                  <div>
+                    <span>4</span>
+                    <p>
+                      <strong>Make a home of your own.</strong>Sell your finds
+                      at Fern & Fig and buy furniture. Go inside your house,
+                      press F to place it, then click to move or rotate it.
+                    </p>
+                  </div>
+                  <div>
+                    <span>5</span>
+                    <p>
+                      <strong>Look forward to tomorrow.</strong>Rest in your bed
+                      to start a new day. Fruit, fish, bugs, and neighbor
+                      requests return. Save up to expand your house.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  className="primary-button"
+                  onClick={() => setPanel(null)}
+                >
+                  Let’s explore! <ArrowRight size={19} />
+                </button>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+    </main>
+  );
 }
