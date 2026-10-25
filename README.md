@@ -69,3 +69,7 @@ The game requires no account, backend, or API key. The interface uses Google Fon
 - `src/components/`: island map, item artwork, and keyboard-accessible dialogue.
 
 This is a small original game inspired by the life-sim genre. It is not affiliated with Nintendo.
+
+## Play online
+
+[Play the hosted game](https://intrepion.github.io/kata-animal-crossing-clone-astra-6-ultra/)
