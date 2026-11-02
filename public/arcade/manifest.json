@@ -1,6 +1,51 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "gameId": "kata-animal-crossing-clone-astra-6-ultra",
   "playUrl": "https://intrepion.github.io/kata-animal-crossing-clone-astra-6-ultra/",
-  "screenshots": []
+  "screenshots": [
+    {
+      "path": "arcade/screenshots/ci-20261102-01.jpg",
+      "sha256": "c8448b387756e22c1a7676fc66b4eb1c958d8ae2861e0d3ddc4bfafaf979d5c1",
+      "alt": "Little Isle gameplay, view 1",
+      "provenance": {
+        "kind": "ci_gameplay_capture",
+        "sourcePath": "arcade/capture-evidence/ci-20261102-01.png",
+        "sourceSha256": "c87c50047c2e1bcefd99bade08ff6b77544f1b9268d9a03d48f5f7099265f983",
+        "captureCommit": "c276d39c566484e243a36fef56387465a63de93b",
+        "workflowRunId": "41442963848",
+        "inputHashes": {
+          "index.html": "88d78a3e6a01517b0e1a9b3fbcebcc283c6c6f7325a0ff0b989e5a38d71d360c",
+          "assets/index-B_vsRMKm.css": "24f5bf2db3ec63be8bdf4a188c384f2165ab103ffa1c266709c1ce360d316471",
+          "assets/index-DdE3eFoi.js": "14d827046a335df98bbf9ca4bf48d98f23a837c93db78acd2ed2050489c45787",
+          "assets/island-renderer-DXr2YzJP.js": "0c570de6075ed8feab9580b73291d9574a30145d793f193310412e818877d03e",
+          "assets/react-BEiHexpT.js": "e5ec19c5f3230a6b5eea808ecbf67581195a22fb3996b99c91b480bc469b0ef6"
+        },
+        "publishedFilesVerifiedAt": "2026-11-02T19:01:20Z",
+        "captureRecordPath": "arcade/capture-evidence/ci-20261102-record.json",
+        "captureRecordSha256": "49b494775397bce7758a61b500cd0a94946e42d3a02acefe67abad0d36cbc34b"
+      }
+    },
+    {
+      "path": "arcade/screenshots/ci-20261102-02.jpg",
+      "sha256": "03a78070982b0e049a182db2ec79410e02177f97aad3839497a910da10b84b9b",
+      "alt": "Little Isle gameplay, view 2",
+      "provenance": {
+        "kind": "ci_gameplay_capture",
+        "sourcePath": "arcade/capture-evidence/ci-20261102-02.png",
+        "sourceSha256": "9f546d8303df5971a47d7af082240fa55a4933426bbfb4c949ffea8e612a7078",
+        "captureCommit": "c276d39c566484e243a36fef56387465a63de93b",
+        "workflowRunId": "41442963848",
+        "inputHashes": {
+          "index.html": "88d78a3e6a01517b0e1a9b3fbcebcc283c6c6f7325a0ff0b989e5a38d71d360c",
+          "assets/index-B_vsRMKm.css": "24f5bf2db3ec63be8bdf4a188c384f2165ab103ffa1c266709c1ce360d316471",
+          "assets/index-DdE3eFoi.js": "14d827046a335df98bbf9ca4bf48d98f23a837c93db78acd2ed2050489c45787",
+          "assets/island-renderer-DXr2YzJP.js": "0c570de6075ed8feab9580b73291d9574a30145d793f193310412e818877d03e",
+          "assets/react-BEiHexpT.js": "e5ec19c5f3230a6b5eea808ecbf67581195a22fb3996b99c91b480bc469b0ef6"
+        },
+        "publishedFilesVerifiedAt": "2026-11-02T19:01:20Z",
+        "captureRecordPath": "arcade/capture-evidence/ci-20261102-record.json",
+        "captureRecordSha256": "49b494775397bce7758a61b500cd0a94946e42d3a02acefe67abad0d36cbc34b"
+      }
+    }
+  ]
 }
