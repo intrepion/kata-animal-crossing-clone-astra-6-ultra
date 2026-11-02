@@ -73,3 +73,7 @@ This is a small original game inspired by the life-sim genre. It is not affiliat
 ## Play online
 
 [Play the hosted game](https://intrepion.github.io/kata-animal-crossing-clone-astra-6-ultra/)
+
+## Arcade metadata
+
+See [docs/arcade-metadata.md](docs/arcade-metadata.md) for the game-owned manifest and screenshot provenance.
